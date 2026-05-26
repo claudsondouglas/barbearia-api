@@ -2,7 +2,6 @@ package actions
 
 import (
 	"regexp"
-	"strings"
 	"testing"
 	"time"
 
@@ -52,17 +51,52 @@ func TestGenerateSlug_OnlyLowercaseAndHyphens(t *testing.T) {
 			t.Errorf("GenerateSlug produced invalid char %q in %q", r, got)
 		}
 	}
-	if strings.HasPrefix(got, "-") || strings.HasSuffix(got, "-") {
+	if len(got) > 0 && (got[0] == '-' || got[len(got)-1] == '-') {
 		t.Errorf("GenerateSlug has leading/trailing hyphen: %q", got)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Create_Success (stub — panics, so test expects panic to be replaced)
+// Create tests
 // ---------------------------------------------------------------------------
 
-func TestCreate_Stub(t *testing.T) {
+func TestCreate_InvalidTimezone(t *testing.T) {
 	db, _ := newTestDB(t)
+	input := CreateOrgInput{
+		Name:         "Org TZ",
+		Phone:        "(11) 99999-9999",
+		Email:        "org@test.com",
+		Street:       "Rua A",
+		Number:       "1",
+		Neighborhood: "Centro",
+		City:         "SP",
+		State:        "SP",
+		ZipCode:      "00000-000",
+		Timezone:     "Mars/Olympus",
+	}
+	_, err := Create(db, 1, input)
+	if err != ErrInvalidTimezone {
+		t.Errorf("expected ErrInvalidTimezone, got %v", err)
+	}
+}
+
+func TestCreate_DefaultTimezone(t *testing.T) {
+	db, mock := newTestDB(t)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT count(*) FROM "organizations"`)).
+		WithArgs("barbearia-teste").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO "organizations"`)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO "org_members"`)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	for i := 0; i < 7; i++ {
+		mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO "member_business_hours"`)).
+			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(uint(i + 1)))
+	}
+	mock.ExpectCommit()
+
 	input := CreateOrgInput{
 		Name:         "Barbearia Teste",
 		Phone:        "(11) 99999-9999",
@@ -74,19 +108,38 @@ func TestCreate_Stub(t *testing.T) {
 		State:        "SP",
 		ZipCode:      "01310-100",
 	}
-	defer func() {
-		if r := recover(); r == nil {
-			t.Log("Create returned without panic — implementation exists")
-		}
-	}()
-	_, _ = Create(db, 1, input)
+	org, err := Create(db, 1, input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if org.Timezone != "America/Sao_Paulo" {
+		t.Errorf("expected default timezone America/Sao_Paulo, got %s", org.Timezone)
+	}
 }
 
-func TestCreate_InvalidTimezone_Stub(t *testing.T) {
-	db, _ := newTestDB(t)
-	tz := "Mars/Olympus"
+func TestCreate_SlugUniqueness(t *testing.T) {
+	db, mock := newTestDB(t)
+
+	// First slug taken, second is free.
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT count(*) FROM "organizations"`)).
+		WithArgs("barber-shop").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT count(*) FROM "organizations"`)).
+		WithArgs("barber-shop-2").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO "organizations"`)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
+	mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO "org_members"`)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	for i := 0; i < 7; i++ {
+		mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO "member_business_hours"`)).
+			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(uint(i + 1)))
+	}
+	mock.ExpectCommit()
+
 	input := CreateOrgInput{
-		Name:         "Org TZ",
+		Name:         "Barber Shop",
 		Phone:        "(11) 99999-9999",
 		Email:        "org@test.com",
 		Street:       "Rua A",
@@ -95,14 +148,14 @@ func TestCreate_InvalidTimezone_Stub(t *testing.T) {
 		City:         "SP",
 		State:        "SP",
 		ZipCode:      "00000-000",
-		Timezone:     tz,
 	}
-	defer func() {
-		if r := recover(); r == nil {
-			t.Log("Create did not panic — implementation exists, timezone may be validated")
-		}
-	}()
-	_, _ = Create(db, 1, input)
+	org, err := Create(db, 1, input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if org.Slug != "barber-shop-2" {
+		t.Errorf("expected slug barber-shop-2, got %s", org.Slug)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -115,12 +168,6 @@ func TestFindBySlug_Found(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "organizations"`)).
 		WithArgs("barber-shop", 1).
 		WillReturnRows(orgRows(1, "barber-shop", "Barber Shop", 10))
-
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("FindBySlug panics (stub): %v — ok for now", r)
-		}
-	}()
 
 	org, err := FindBySlug(db, "barber-shop")
 	if err != nil {
@@ -135,36 +182,26 @@ func TestFindBySlug_NotFound(t *testing.T) {
 	db, mock := newTestDB(t)
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "organizations"`)).
+		WithArgs("nonexistent", 1).
 		WillReturnRows(sqlmock.NewRows(nil))
-
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("FindBySlug panics (stub): %v — ok for now", r)
-		}
-	}()
 
 	_, err := FindBySlug(db, "nonexistent")
 	if err != ErrOrgNotFound {
-		t.Logf("expected ErrOrgNotFound, got %v — stub may not be implemented yet", err)
+		t.Errorf("expected ErrOrgNotFound, got %v", err)
 	}
 }
 
 func TestFindBySlug_SoftDeleted(t *testing.T) {
 	db, mock := newTestDB(t)
 
-	// Soft-deleted row should not be returned (deleted_at IS NULL filter).
+	// GORM automatically adds deleted_at IS NULL; soft-deleted rows are excluded.
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "organizations"`)).
+		WithArgs("deleted-org", 1).
 		WillReturnRows(sqlmock.NewRows(nil))
-
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("FindBySlug panics (stub): %v — ok for now", r)
-		}
-	}()
 
 	_, err := FindBySlug(db, "deleted-org")
 	if err != ErrOrgNotFound {
-		t.Logf("expected ErrOrgNotFound for soft-deleted, got %v", err)
+		t.Errorf("expected ErrOrgNotFound for soft-deleted org, got %v", err)
 	}
 }
 
@@ -172,59 +209,33 @@ func TestFindBySlug_SoftDeleted(t *testing.T) {
 // Update tests
 // ---------------------------------------------------------------------------
 
-func TestUpdate_Stub(t *testing.T) {
-	db, _ := newTestDB(t)
-	input := UpdateOrgInput{}
-	defer func() {
-		if r := recover(); r == nil {
-			t.Log("Update returned without panic — implementation exists")
-		}
-	}()
-	_, _ = Update(db, "barber-shop", 10, input)
+func TestUpdate_NotFound(t *testing.T) {
+	db, mock := newTestDB(t)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "organizations"`)).
+		WithArgs("nonexistent", 1).
+		WillReturnRows(sqlmock.NewRows(nil))
+
+	_, err := Update(db, "nonexistent", 10, "user", UpdateOrgInput{})
+	if err != ErrOrgNotFound {
+		t.Errorf("expected ErrOrgNotFound, got %v", err)
+	}
 }
 
-func TestUpdate_Forbidden_Stub(t *testing.T) {
+func TestUpdate_Forbidden(t *testing.T) {
 	db, mock := newTestDB(t)
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "organizations"`)).
 		WithArgs("barber-shop", 1).
 		WillReturnRows(orgRows(1, "barber-shop", "Barber Shop", 10))
 
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("Update panics (stub): %v — ok for now", r)
-		}
-	}()
-
-	_, err := Update(db, "barber-shop", 99 /* not owner */, UpdateOrgInput{})
+	_, err := Update(db, "barber-shop", 99, "user", UpdateOrgInput{})
 	if err != ErrForbidden {
-		t.Logf("expected ErrForbidden, got %v — stub may not be implemented yet", err)
+		t.Errorf("expected ErrForbidden, got %v", err)
 	}
 }
 
-func TestUpdate_NotFound_Stub(t *testing.T) {
-	db, mock := newTestDB(t)
-
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "organizations"`)).
-		WillReturnRows(sqlmock.NewRows(nil))
-
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("Update panics (stub): %v — ok for now", r)
-		}
-	}()
-
-	_, err := Update(db, "nonexistent", 10, UpdateOrgInput{})
-	if err != ErrOrgNotFound {
-		t.Logf("expected ErrOrgNotFound, got %v — stub may not be implemented yet", err)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Delete tests
-// ---------------------------------------------------------------------------
-
-func TestDelete_Success_Stub(t *testing.T) {
+func TestUpdate_AdminCanUpdateAnyOrg(t *testing.T) {
 	db, mock := newTestDB(t)
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "organizations"`)).
@@ -235,33 +246,97 @@ func TestDelete_Success_Stub(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("Delete panics (stub): %v — ok for now", r)
-		}
-	}()
-
-	err := Delete(db, "barber-shop")
+	phone := "(11) 88888-8888"
+	org, err := Update(db, "barber-shop", 99, "admin", UpdateOrgInput{Phone: &phone})
 	if err != nil {
-		t.Logf("Delete returned error: %v — may not be implemented yet", err)
+		t.Fatalf("admin should be allowed, got error: %v", err)
+	}
+	if org.Phone != phone {
+		t.Errorf("expected phone %s, got %s", phone, org.Phone)
 	}
 }
 
-func TestDelete_NotFound_Stub(t *testing.T) {
+func TestUpdate_InvalidTimezone(t *testing.T) {
 	db, mock := newTestDB(t)
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "organizations"`)).
-		WillReturnRows(sqlmock.NewRows(nil))
+		WithArgs("barber-shop", 1).
+		WillReturnRows(orgRows(1, "barber-shop", "Barber Shop", 10))
 
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("Delete panics (stub): %v — ok for now", r)
-		}
-	}()
+	tz := "Mars/Olympus"
+	_, err := Update(db, "barber-shop", 10, "user", UpdateOrgInput{Timezone: &tz})
+	if err != ErrInvalidTimezone {
+		t.Errorf("expected ErrInvalidTimezone, got %v", err)
+	}
+}
+
+func TestUpdate_NoFields(t *testing.T) {
+	db, mock := newTestDB(t)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "organizations"`)).
+		WithArgs("barber-shop", 1).
+		WillReturnRows(orgRows(1, "barber-shop", "Barber Shop", 10))
+
+	org, err := Update(db, "barber-shop", 10, "user", UpdateOrgInput{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if org.Slug != "barber-shop" {
+		t.Errorf("expected unchanged slug, got %s", org.Slug)
+	}
+}
+
+func TestUpdate_OwnerCanUpdate(t *testing.T) {
+	db, mock := newTestDB(t)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "organizations"`)).
+		WithArgs("barber-shop", 1).
+		WillReturnRows(orgRows(1, "barber-shop", "Barber Shop", 10))
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE "organizations"`)).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	phone := "(11) 77777-7777"
+	org, err := Update(db, "barber-shop", 10, "user", UpdateOrgInput{Phone: &phone})
+	if err != nil {
+		t.Fatalf("owner should be allowed, got error: %v", err)
+	}
+	if org.Phone != phone {
+		t.Errorf("expected phone %s, got %s", phone, org.Phone)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Delete tests
+// ---------------------------------------------------------------------------
+
+func TestDelete_NotFound(t *testing.T) {
+	db, mock := newTestDB(t)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "organizations"`)).
+		WithArgs("nonexistent", 1).
+		WillReturnRows(sqlmock.NewRows(nil))
 
 	err := Delete(db, "nonexistent")
 	if err != ErrOrgNotFound {
-		t.Logf("expected ErrOrgNotFound, got %v — stub may not be implemented yet", err)
+		t.Errorf("expected ErrOrgNotFound, got %v", err)
+	}
+}
+
+func TestDelete_Success(t *testing.T) {
+	db, mock := newTestDB(t)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "organizations"`)).
+		WithArgs("barber-shop", 1).
+		WillReturnRows(orgRows(1, "barber-shop", "Barber Shop", 10))
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE "organizations"`)).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	if err := Delete(db, "barber-shop"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -269,98 +344,66 @@ func TestDelete_NotFound_Stub(t *testing.T) {
 // List tests
 // ---------------------------------------------------------------------------
 
-func TestList_Success_Stub(t *testing.T) {
+func TestList_Active(t *testing.T) {
 	db, mock := newTestDB(t)
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT`)).
 		WillReturnRows(orgRows(1, "barber-shop", "Barber Shop", 10))
-
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("List panics (stub): %v — ok for now", r)
-		}
-	}()
 
 	orgs, err := List(db, 20, 0, false)
 	if err != nil {
-		t.Logf("List returned error: %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
-	_ = orgs
+	if len(orgs) != 1 {
+		t.Errorf("expected 1 org, got %d", len(orgs))
+	}
 }
 
-func TestList_ExcludesSoftDeleted_Stub(t *testing.T) {
+func TestList_Deleted(t *testing.T) {
 	db, mock := newTestDB(t)
 
-	// Should only return active orgs.
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT`)).
-		WillReturnRows(orgRows(1, "barber-shop", "Barber Shop", 10))
+		WillReturnRows(sqlmock.NewRows(nil))
 
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("List panics (stub): %v — ok for now", r)
-		}
-	}()
-
-	orgs, err := List(db, 20, 0, false)
-	_ = orgs
-	_ = err
+	orgs, err := List(db, 20, 0, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(orgs) != 0 {
+		t.Errorf("expected 0 orgs, got %d", len(orgs))
+	}
 }
 
 // ---------------------------------------------------------------------------
 // MyOrgs tests
 // ---------------------------------------------------------------------------
 
-func TestMyOrgs_AsOwner_Stub(t *testing.T) {
+func TestMyOrgs_ReturnsOrgs(t *testing.T) {
 	db, mock := newTestDB(t)
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT`)).
 		WillReturnRows(orgRows(1, "barber-shop", "Barber Shop", 10))
-
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("MyOrgs panics (stub): %v — ok for now", r)
-		}
-	}()
 
 	orgs, err := MyOrgs(db, 10)
-	_ = orgs
-	_ = err
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(orgs) != 1 {
+		t.Errorf("expected 1 org, got %d", len(orgs))
+	}
 }
 
-func TestMyOrgs_AsMember_Stub(t *testing.T) {
-	db, mock := newTestDB(t)
-
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT`)).
-		WillReturnRows(orgRows(1, "barber-shop", "Barber Shop", 10))
-
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("MyOrgs panics (stub): %v — ok for now", r)
-		}
-	}()
-
-	orgs, err := MyOrgs(db, 20 /* member, not owner */)
-	_ = orgs
-	_ = err
-}
-
-func TestMyOrgs_Empty_Stub(t *testing.T) {
+func TestMyOrgs_Empty(t *testing.T) {
 	db, mock := newTestDB(t)
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT`)).
 		WillReturnRows(sqlmock.NewRows(nil))
 
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("MyOrgs panics (stub): %v — ok for now", r)
-		}
-	}()
-
 	orgs, err := MyOrgs(db, 99)
 	if err != nil {
-		t.Logf("MyOrgs returned error: %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if orgs != nil && len(orgs) != 0 {
+	if len(orgs) != 0 {
 		t.Errorf("expected empty result, got %d orgs", len(orgs))
 	}
 }

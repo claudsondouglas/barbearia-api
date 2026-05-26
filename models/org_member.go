@@ -17,7 +17,6 @@ type Organization struct {
 	Email        string         `gorm:"not null" json:"email"`
 	Description  *string        `json:"description"`
 	LogoURL      *string        `json:"logo_url"`
-	CNPJ         *string        `json:"cnpj"`
 	Street       string         `gorm:"not null" json:"street"`
 	Number       string         `gorm:"not null" json:"number"`
 	Complement   *string        `json:"complement"`
@@ -30,7 +29,55 @@ type Organization struct {
 	Timezone     string         `gorm:"not null;default:'America/Sao_Paulo'" json:"timezone"`
 	CreatedAt    time.Time      `json:"created_at"`
 	UpdatedAt    time.Time      `json:"updated_at"`
-	DeletedAt    gorm.DeletedAt `json:"deleted_at"`
+	DeletedAt    gorm.DeletedAt `json:"-"`
+}
+
+// OrgResponse é a representação pública de uma organização (sem owner_id e deleted_at).
+type OrgResponse struct {
+	ID           uint      `json:"id"`
+	Name         string    `json:"name"`
+	Slug         string    `json:"slug"`
+	Phone        string    `json:"phone"`
+	Email        string    `json:"email"`
+	Description  *string   `json:"description"`
+	LogoURL      *string   `json:"logo_url"`
+	Street       string    `json:"street"`
+	Number       string    `json:"number"`
+	Complement   *string   `json:"complement"`
+	Neighborhood string    `json:"neighborhood"`
+	City         string    `json:"city"`
+	State        string    `json:"state"`
+	ZipCode      string    `json:"zip_code"`
+	Latitude     *float64  `json:"latitude"`
+	Longitude    *float64  `json:"longitude"`
+	Timezone     string    `json:"timezone"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// ToResponse converte Organization em OrgResponse para exposição via API.
+func (o *Organization) ToResponse() OrgResponse {
+	return OrgResponse{
+		ID:           o.ID,
+		Name:         o.Name,
+		Slug:         o.Slug,
+		Phone:        o.Phone,
+		Email:        o.Email,
+		Description:  o.Description,
+		LogoURL:      o.LogoURL,
+		Street:       o.Street,
+		Number:       o.Number,
+		Complement:   o.Complement,
+		Neighborhood: o.Neighborhood,
+		City:         o.City,
+		State:        o.State,
+		ZipCode:      o.ZipCode,
+		Latitude:     o.Latitude,
+		Longitude:    o.Longitude,
+		Timezone:     o.Timezone,
+		CreatedAt:    o.CreatedAt,
+		UpdatedAt:    o.UpdatedAt,
+	}
 }
 
 // OrgMember representa o vínculo entre um usuário e uma organização.

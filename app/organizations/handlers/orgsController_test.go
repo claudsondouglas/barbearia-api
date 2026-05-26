@@ -60,7 +60,7 @@ func orgRows(id uint, slug, name string, ownerID uint) *sqlmock.Rows {
 	)
 }
 
-// requireAuth returns 401 if no auth_user is set in context — simulates real auth middleware.
+// requireAuth returns 401 if no auth_user is set in context.
 func requireAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, ok := middleware.GetAuthUser(c); !ok {
@@ -74,14 +74,12 @@ func requireAuth() gin.HandlerFunc {
 func setupRouter(h *Handler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	// Protected routes — will return 401 without auth_user in context.
 	r.POST("/organizations", requireAuth(), h.Create)
 	r.GET("/organizations/:slug", h.Find)
 	r.PATCH("/organizations/:slug", requireAuth(), h.Update)
 	r.DELETE("/organizations/:slug", requireAuth(), h.Delete)
 	r.GET("/organizations", requireAuth(), h.List)
 	r.GET("/my/organizations", requireAuth(), h.MyOrgs)
-	// Public routes.
 	r.GET("/organizations/:slug/business-hours", h.GetBusinessHours)
 	r.GET("/organizations/:slug/availability", h.GetAvailability)
 	return r
@@ -117,7 +115,7 @@ func TestCreate_Unauthenticated(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusUnauthorized {
-		t.Errorf("expected 401, got %d (body: %s)", w.Code, w.Body.String())
+		t.Errorf("expected 401, got %d", w.Code)
 	}
 }
 
@@ -130,40 +128,30 @@ func TestCreate_MissingName(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/organizations", body)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("Create panics (stub): %v — ok for now", r)
-		}
-	}()
-
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusBadRequest {
-		t.Logf("expected 400 for missing name, got %d — stub may not validate yet", w.Code)
+		t.Errorf("expected 400 for missing name, got %d", w.Code)
 	}
 }
 
 func TestCreate_InvalidTimezone(t *testing.T) {
-	db, _ := newTestDB(t)
+	db, mock := newTestDB(t)
 	h := &Handler{Handler: app.NewHandler(db)}
 	r := setupRouterWithAuth(h, 1, "user")
+
+	// Slug check is called before timezone validation in Create — but timezone validation
+	// happens before the slug check in our implementation, so no DB query expected.
+	_ = mock
 
 	body := bytes.NewBufferString(`{"name":"Barber","phone":"(11) 99999-9999","email":"org@test.com","street":"Rua A","number":"1","neighborhood":"Centro","city":"SP","state":"SP","zip_code":"00000-000","timezone":"Mars/Olympus"}`)
 	req := httptest.NewRequest(http.MethodPost, "/organizations", body)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("Create panics (stub): %v — ok for now", r)
-		}
-	}()
-
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusUnprocessableEntity {
-		t.Logf("expected 422 for invalid timezone, got %d — stub may not validate yet", w.Code)
+		t.Errorf("expected 422 for invalid timezone, got %d", w.Code)
 	}
 }
 
@@ -172,9 +160,9 @@ func TestCreate_Success(t *testing.T) {
 	h := &Handler{Handler: app.NewHandler(db)}
 	r := setupRouterWithAuth(h, 1, "user")
 
-	// Mock: slug uniqueness check + insert + member + 7 hours.
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT`)).
-		WillReturnRows(sqlmock.NewRows(nil))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT count(*) FROM "organizations"`)).
+		WithArgs("barber-shop").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO "organizations"`)).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
@@ -195,17 +183,21 @@ func TestCreate_Success(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/organizations", bytes.NewBuffer(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("Create panics (stub): %v — ok for now", r)
-		}
-	}()
-
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusCreated {
-		t.Logf("expected 201, got %d (body: %s) — stub may not be implemented yet", w.Code, w.Body.String())
+		t.Errorf("expected 201, got %d (body: %s)", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON response: %v", err)
+	}
+	if _, ok := resp["owner_id"]; ok {
+		t.Error("response must not include owner_id")
+	}
+	if _, ok := resp["deleted_at"]; ok {
+		t.Error("response must not include deleted_at")
 	}
 }
 
@@ -224,17 +216,21 @@ func TestFind_Success(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/organizations/barber-shop", nil)
 	w := httptest.NewRecorder()
-
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("Find panics (stub): %v — ok for now", r)
-		}
-	}()
-
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Logf("expected 200, got %d — stub may not be implemented yet", w.Code)
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if _, ok := resp["owner_id"]; ok {
+		t.Error("response must not include owner_id")
+	}
+	if resp["slug"] != "barber-shop" {
+		t.Errorf("expected slug barber-shop, got %v", resp["slug"])
 	}
 }
 
@@ -244,21 +240,15 @@ func TestFind_NotFound(t *testing.T) {
 	r := setupRouter(h)
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "organizations"`)).
+		WithArgs("nonexistent", 1).
 		WillReturnRows(sqlmock.NewRows(nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/organizations/nonexistent", nil)
 	w := httptest.NewRecorder()
-
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("Find panics (stub): %v — ok for now", r)
-		}
-	}()
-
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusNotFound {
-		t.Logf("expected 404, got %d — stub may not be implemented yet", w.Code)
+		t.Errorf("expected 404, got %d", w.Code)
 	}
 }
 
@@ -278,7 +268,7 @@ func TestUpdate_Unauthenticated(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusUnauthorized {
-		t.Errorf("expected 401, got %d (body: %s)", w.Code, w.Body.String())
+		t.Errorf("expected 401, got %d", w.Code)
 	}
 }
 
@@ -290,7 +280,6 @@ func TestUpdate_Success(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "organizations"`)).
 		WithArgs("barber-shop", 1).
 		WillReturnRows(orgRows(1, "barber-shop", "Barber Shop", 10))
-
 	mock.ExpectBegin()
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE "organizations"`)).
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -300,24 +289,17 @@ func TestUpdate_Success(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPatch, "/organizations/barber-shop", body)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("Update panics (stub): %v — ok for now", r)
-		}
-	}()
-
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Logf("expected 200, got %d — stub may not be implemented yet", w.Code)
+		t.Errorf("expected 200, got %d (body: %s)", w.Code, w.Body.String())
 	}
 }
 
 func TestUpdate_Forbidden(t *testing.T) {
 	db, mock := newTestDB(t)
 	h := &Handler{Handler: app.NewHandler(db)}
-	r := setupRouterWithAuth(h, 99 /* not owner */, "user")
+	r := setupRouterWithAuth(h, 99, "user")
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "organizations"`)).
 		WithArgs("barber-shop", 1).
@@ -327,17 +309,30 @@ func TestUpdate_Forbidden(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPatch, "/organizations/barber-shop", body)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("Update panics (stub): %v — ok for now", r)
-		}
-	}()
-
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusForbidden {
-		t.Logf("expected 403, got %d — stub may not be implemented yet", w.Code)
+		t.Errorf("expected 403, got %d", w.Code)
+	}
+}
+
+func TestUpdate_NotFound(t *testing.T) {
+	db, mock := newTestDB(t)
+	h := &Handler{Handler: app.NewHandler(db)}
+	r := setupRouterWithAuth(h, 10, "user")
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "organizations"`)).
+		WithArgs("nonexistent", 1).
+		WillReturnRows(sqlmock.NewRows(nil))
+
+	body := bytes.NewBufferString(`{"phone":"(11) 88888-8888"}`)
+	req := httptest.NewRequest(http.MethodPatch, "/organizations/nonexistent", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", w.Code)
 	}
 }
 
@@ -367,7 +362,6 @@ func TestDelete_Success(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "organizations"`)).
 		WithArgs("barber-shop", 1).
 		WillReturnRows(orgRows(1, "barber-shop", "Barber Shop", 10))
-
 	mock.ExpectBegin()
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE "organizations"`)).
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -375,77 +369,129 @@ func TestDelete_Success(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodDelete, "/organizations/barber-shop", nil)
 	w := httptest.NewRecorder()
-
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("Delete panics (stub): %v — ok for now", r)
-		}
-	}()
-
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK && w.Code != http.StatusNoContent {
-		t.Logf("expected 200 or 204, got %d — stub may not be implemented yet", w.Code)
+	if w.Code != http.StatusNoContent {
+		t.Errorf("expected 204, got %d", w.Code)
 	}
 }
 
 func TestDelete_Forbidden(t *testing.T) {
-	db, mock := newTestDB(t)
+	db, _ := newTestDB(t)
 	h := &Handler{Handler: app.NewHandler(db)}
-	r := setupRouterWithAuth(h, 10, "user") // owner role=user, not admin
-
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "organizations"`)).
-		WillReturnRows(orgRows(1, "barber-shop", "Barber Shop", 10))
+	r := setupRouterWithAuth(h, 10, "user")
 
 	req := httptest.NewRequest(http.MethodDelete, "/organizations/barber-shop", nil)
 	w := httptest.NewRecorder()
-
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("Delete panics (stub): %v — ok for now", r)
-		}
-	}()
-
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusForbidden {
-		t.Logf("expected 403, got %d — stub may not be implemented yet", w.Code)
+		t.Errorf("expected 403, got %d", w.Code)
+	}
+}
+
+func TestDelete_NotFound(t *testing.T) {
+	db, mock := newTestDB(t)
+	h := &Handler{Handler: app.NewHandler(db)}
+	r := setupRouterWithAuth(h, 10, "admin")
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "organizations"`)).
+		WithArgs("nonexistent", 1).
+		WillReturnRows(sqlmock.NewRows(nil))
+
+	req := httptest.NewRequest(http.MethodDelete, "/organizations/nonexistent", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", w.Code)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// GetBusinessHours tests
+// List tests
 // ---------------------------------------------------------------------------
 
-func TestGetBusinessHours_Success(t *testing.T) {
+func TestList_Success(t *testing.T) {
 	db, mock := newTestDB(t)
 	h := &Handler{Handler: app.NewHandler(db)}
-	r := setupRouter(h)
-
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "organizations"`)).
-		WithArgs("barber-shop", 1).
-		WillReturnRows(orgRows(1, "barber-shop", "Barber Shop", 10))
+	r := setupRouterWithAuth(h, 1, "admin")
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT`)).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "org_member_id", "day_of_week", "closed", "open_time", "close_time",
-		}).AddRow(1, 1, 1, false, "09:00", "18:00"))
+		WillReturnRows(orgRows(1, "barber-shop", "Barber Shop", 10))
 
-	req := httptest.NewRequest(http.MethodGet, "/organizations/barber-shop/business-hours", nil)
+	req := httptest.NewRequest(http.MethodGet, "/organizations", nil)
 	w := httptest.NewRecorder()
-
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("GetBusinessHours panics (stub): %v — ok for now", r)
-		}
-	}()
-
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Logf("expected 200, got %d — stub may not be implemented yet", w.Code)
+		t.Errorf("expected 200, got %d", w.Code)
 	}
 }
+
+func TestList_Unauthenticated(t *testing.T) {
+	db, _ := newTestDB(t)
+	h := &Handler{Handler: app.NewHandler(db)}
+	r := setupRouter(h)
+
+	req := httptest.NewRequest(http.MethodGet, "/organizations", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", w.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// MyOrgs tests
+// ---------------------------------------------------------------------------
+
+func TestMyOrgs_Success(t *testing.T) {
+	db, mock := newTestDB(t)
+	h := &Handler{Handler: app.NewHandler(db)}
+	r := setupRouterWithAuth(h, 10, "user")
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT`)).
+		WillReturnRows(orgRows(1, "barber-shop", "Barber Shop", 10))
+
+	req := httptest.NewRequest(http.MethodGet, "/my/organizations", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d (body: %s)", w.Code, w.Body.String())
+	}
+
+	var resp []interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(resp) != 1 {
+		t.Errorf("expected 1 org, got %d", len(resp))
+	}
+}
+
+func TestMyOrgs_Empty(t *testing.T) {
+	db, mock := newTestDB(t)
+	h := &Handler{Handler: app.NewHandler(db)}
+	r := setupRouterWithAuth(h, 99, "user")
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT`)).
+		WillReturnRows(sqlmock.NewRows(nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/my/organizations", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetBusinessHours tests (stub — not implemented yet)
+// ---------------------------------------------------------------------------
 
 func TestGetBusinessHours_NotFound(t *testing.T) {
 	db, mock := newTestDB(t)
@@ -465,14 +511,10 @@ func TestGetBusinessHours_NotFound(t *testing.T) {
 	}()
 
 	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusNotFound {
-		t.Logf("expected 404, got %d — stub may not be implemented yet", w.Code)
-	}
 }
 
 // ---------------------------------------------------------------------------
-// GetAvailability tests
+// GetAvailability tests (stub — not implemented yet)
 // ---------------------------------------------------------------------------
 
 func TestGetAvailability_MissingParams(t *testing.T) {
@@ -480,7 +522,6 @@ func TestGetAvailability_MissingParams(t *testing.T) {
 	h := &Handler{Handler: app.NewHandler(db)}
 	r := setupRouter(h)
 
-	// Missing professional_id, service_id, date.
 	req := httptest.NewRequest(http.MethodGet, "/organizations/barber-shop/availability", nil)
 	w := httptest.NewRecorder()
 
@@ -491,85 +532,4 @@ func TestGetAvailability_MissingParams(t *testing.T) {
 	}()
 
 	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Logf("expected 400 for missing params, got %d — stub may not be implemented yet", w.Code)
-	}
-}
-
-func TestGetAvailability_OrgNotFound(t *testing.T) {
-	db, mock := newTestDB(t)
-	h := &Handler{Handler: app.NewHandler(db)}
-	r := setupRouter(h)
-
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "organizations"`)).
-		WillReturnRows(sqlmock.NewRows(nil))
-
-	req := httptest.NewRequest(http.MethodGet, "/organizations/nonexistent/availability?professional_id=1&service_id=1&date=2026-08-01", nil)
-	w := httptest.NewRecorder()
-
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("GetAvailability panics (stub): %v — ok for now", r)
-		}
-	}()
-
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusNotFound {
-		t.Logf("expected 404, got %d — stub may not be implemented yet", w.Code)
-	}
-}
-
-func TestGetAvailability_PastDate(t *testing.T) {
-	db, mock := newTestDB(t)
-	h := &Handler{Handler: app.NewHandler(db)}
-	r := setupRouter(h)
-
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "organizations"`)).
-		WithArgs("barber-shop", 1).
-		WillReturnRows(orgRows(1, "barber-shop", "Barber Shop", 10))
-
-	// Past date.
-	req := httptest.NewRequest(http.MethodGet, "/organizations/barber-shop/availability?professional_id=1&service_id=1&date=2020-01-01", nil)
-	w := httptest.NewRecorder()
-
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("GetAvailability panics (stub): %v — ok for now", r)
-		}
-	}()
-
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Logf("expected 422 for past date, got %d — stub may not be implemented yet", w.Code)
-	}
-}
-
-func TestGetAvailability_Success(t *testing.T) {
-	db, mock := newTestDB(t)
-	h := &Handler{Handler: app.NewHandler(db)}
-	r := setupRouter(h)
-
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "organizations"`)).
-		WithArgs("barber-shop", 1).
-		WillReturnRows(orgRows(1, "barber-shop", "Barber Shop", 10))
-
-	// Further DB expectations depend on implementation — just expect org lookup.
-
-	req := httptest.NewRequest(http.MethodGet, "/organizations/barber-shop/availability?professional_id=1&service_id=1&date=2026-08-01", nil)
-	w := httptest.NewRecorder()
-
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("GetAvailability panics (stub): %v — ok for now", r)
-		}
-	}()
-
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Logf("expected 200, got %d — stub may not be implemented yet", w.Code)
-	}
 }
