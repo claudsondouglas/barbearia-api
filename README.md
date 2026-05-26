@@ -27,25 +27,90 @@ This project was developed to practice building production-grade backend service
 
 ### Auth
 
-| Method | Route | Description |
-|---|---|---|
-| POST | `/auth/register` | Create a new account |
-| POST | `/auth/login` | Authenticate and receive tokens |
-| GET | `/auth/verify` | Verify email via OTP link |
-| POST | `/auth/refresh` | Rotate access token using refresh token |
-| POST | `/auth/forgot-password` | Send password reset email |
-| POST | `/auth/reset-password` | Reset password using OTP token |
-| POST | `/auth/logout` | Invalidate the current session |
+| Method | Route | Auth | Description |
+|---|---|---|---|
+| POST | `/auth/register` | — | Create a new account |
+| POST | `/auth/login` | — | Authenticate and receive tokens |
+| GET | `/auth/verify` | — | Verify email via OTP link |
+| POST | `/auth/refresh` | — | Rotate access token using refresh token |
+| POST | `/auth/forgot-password` | — | Send password reset email |
+| POST | `/auth/reset-password` | — | Reset password using OTP token |
+| POST | `/auth/logout` | — | Invalidate the current session |
 
 ### Users (admin only)
 
-| Method | Route | Description |
-|---|---|---|
-| GET | `/users` | List all users |
-| GET | `/users/:id` | Get a specific user |
-| POST | `/users` | Create a user |
-| PATCH | `/users/:id` | Update a user |
-| DELETE | `/users/:id` | Delete a user |
+| Method | Route | Auth | Description |
+|---|---|---|---|
+| GET | `/users` | admin | List all users |
+| GET | `/users/:id` | admin | Get a specific user |
+| POST | `/users` | admin | Create a user |
+| PATCH | `/users/:id` | admin | Update a user |
+| DELETE | `/users/:id` | admin | Delete a user |
+
+### Organizations
+
+| Method | Route | Auth | Description |
+|---|---|---|---|
+| POST | `/organizations` | required | Create an organization |
+| GET | `/organizations` | required | List organizations |
+| GET | `/organizations/:slug` | — | Get organization by slug |
+| PATCH | `/organizations/:slug` | required | Update an organization |
+| DELETE | `/organizations/:slug` | required | Delete an organization |
+| GET | `/my/organizations` | required | List authenticated user's organizations |
+| GET | `/organizations/:slug/business-hours` | — | Get organization's business hours |
+| GET | `/organizations/:slug/availability` | — | Get available slots |
+| GET | `/organizations/:slug/exceptions` | required | List schedule exceptions |
+| POST | `/organizations/:slug/exceptions` | required | Create a schedule exception |
+| DELETE | `/organizations/:slug/exceptions/:id` | required | Delete a schedule exception |
+
+### Members
+
+| Method | Route | Auth | Description |
+|---|---|---|---|
+| GET | `/organizations/:slug/members` | — | List organization members |
+| POST | `/organizations/:slug/members` | required | Add a member to the organization |
+| DELETE | `/organizations/:slug/members/:user_id` | required | Remove a member |
+| GET | `/organizations/:slug/members/:user_id/business-hours` | required | Get member's business hours |
+| PATCH | `/organizations/:slug/members/:user_id/business-hours` | required | Update all member's business hours |
+| PATCH | `/organizations/:slug/members/:user_id/business-hours/:day` | required | Update a single day's business hours |
+| GET | `/organizations/:slug/members/:user_id/exceptions` | required | List member's schedule exceptions |
+| POST | `/organizations/:slug/members/:user_id/exceptions` | required | Create a member schedule exception |
+| DELETE | `/organizations/:slug/members/:user_id/exceptions/:id` | required | Delete a member schedule exception |
+
+### Customers
+
+| Method | Route | Auth | Description |
+|---|---|---|---|
+| GET | `/organizations/:slug/customers` | required | List customers |
+| POST | `/organizations/:slug/customers` | required | Create a customer |
+| GET | `/organizations/:slug/customers/:id` | required | Get a customer |
+| PATCH | `/organizations/:slug/customers/:id` | required | Update a customer |
+| DELETE | `/organizations/:slug/customers/:id` | required | Delete a customer |
+
+### Services
+
+| Method | Route | Auth | Description |
+|---|---|---|---|
+| GET | `/organizations/:slug/services` | — | List services |
+| GET | `/organizations/:slug/services/:id` | — | Get a service |
+| POST | `/organizations/:slug/services` | required | Create a service |
+| PATCH | `/organizations/:slug/services/:id` | required | Update a service |
+| DELETE | `/organizations/:slug/services/:id` | required | Delete a service |
+
+### Schedules
+
+| Method | Route | Auth | Description |
+|---|---|---|---|
+| POST | `/organizations/:slug/schedules` | required | Create a schedule |
+| GET | `/organizations/:slug/schedules` | required | List organization schedules |
+| GET | `/organizations/:slug/schedules/:id` | required | Get a schedule |
+| GET | `/my/schedules` | required | List authenticated user's schedules |
+| PATCH | `/organizations/:slug/schedules/:id/confirm` | required | Confirm a schedule |
+| PATCH | `/organizations/:slug/schedules/:id/cancel` | required | Cancel a schedule |
+| PATCH | `/organizations/:slug/schedules/:id/complete` | required | Mark schedule as completed |
+| PATCH | `/organizations/:slug/schedules/:id/no-show` | required | Mark as no-show |
+| PATCH | `/organizations/:slug/schedules/:id/reschedule` | required | Reschedule an appointment |
+| GET | `/organizations/:slug/schedules/:id/reschedule-history` | required | Get reschedule history |
 
 ## Project Structure
 
@@ -53,20 +118,36 @@ This project was developed to practice building production-grade backend service
 .
 ├── app/
 │   ├── auth/
-│   │   ├── actions/    # business logic: register, login, refresh, OTP…
-│   │   └── handlers/   # HTTP handlers for auth routes
+│   │   ├── actions/          # register, login, refresh, verify, OTP, logout
+│   │   └── handlers/         # HTTP handlers for auth routes
+│   ├── customers/
+│   │   ├── actions/          # create, list, find, update, delete, auto-create
+│   │   └── handlers/
+│   ├── members/
+│   │   ├── actions/          # add, remove, list
+│   │   └── handlers/
+│   ├── organizations/
+│   │   ├── actions/          # org CRUD, business hours, availability, exceptions
+│   │   └── handlers/
+│   ├── schedules/
+│   │   ├── actions/          # create, list, find, transitions, reschedule
+│   │   └── handlers/
+│   ├── services/
+│   │   ├── actions/          # create, list, find, update, delete
+│   │   └── handlers/
 │   ├── users/
-│   │   ├── actions/    # business logic: create, list, find, update, delete
-│   │   └── handlers/   # HTTP handlers for user routes
-│   ├── middleware/     # auth guard, rate limiter
-│   └── notifications/
-│       └── mail/       # Resend email client
-├── cache/              # Redis connection
+│   │   ├── actions/          # create, list, find, update, delete
+│   │   └── handlers/
+│   ├── middleware/            # auth guard, admin guard, rate limiter
+│   ├── notifications/
+│   │   └── mail/             # Resend email client
+│   └── handler.go            # shared base handler
+├── cache/                    # Redis connection
 ├── database/
-│   ├── migrations/     # SQL migrations (goose, embedded via go:embed)
-│   └── database.go     # GORM connection + auto-migrate on startup
-├── models/             # shared data models (User, OTP, Auth)
-├── routes/             # route registration
+│   ├── migrations/           # SQL migrations (goose, embedded via go:embed)
+│   └── database.go           # GORM connection + auto-migrate on startup
+├── models/                   # shared data models (User, OTP, Organization, Member, Customer, Service, Schedule…)
+├── routes/                   # route registration
 └── main.go
 ```
 
