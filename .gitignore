@@ -3,3 +3,4 @@ build-errors.log
 .claude/
 CLAUDE.md
 .env
+.specs
