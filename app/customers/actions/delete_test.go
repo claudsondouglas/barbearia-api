@@ -28,7 +28,7 @@ func TestDeleteCustomer_NoActiveSchedules(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
-	err := Delete(db, "barbearia-test", 2, 10, "owner")
+	err := Delete(db, "barbearia-test", 2, 10, "user")
 	if err != nil {
 		t.Fatalf("expected nil error, got: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestDeleteCustomer_WithPendingSchedules(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "customer_id", "status"}).
 			AddRow(1, 1, "pending"))
 
-	err := Delete(db, "barbearia-test", 1, 10, "owner")
+	err := Delete(db, "barbearia-test", 1, 10, "user")
 	if !errors.Is(err, ErrCustomerHasActiveSchedules) {
 		t.Errorf("expected ErrCustomerHasActiveSchedules, got: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestDeleteCustomer_WithCompletedSchedules(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
-	err := Delete(db, "barbearia-test", 1, 10, "owner")
+	err := Delete(db, "barbearia-test", 1, 10, "user")
 	if err != nil {
 		t.Fatalf("expected nil error for completed schedules, got: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestDeleteCustomer_NotFound(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "customers"`)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "organization_id", "user_id", "name", "phone", "notes", "created_at", "updated_at"}))
 
-	err := Delete(db, "barbearia-test", 999, 10, "owner")
+	err := Delete(db, "barbearia-test", 999, 10, "user")
 	if !errors.Is(err, ErrCustomerNotFound) {
 		t.Errorf("expected ErrCustomerNotFound, got: %v", err)
 	}

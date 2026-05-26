@@ -8,16 +8,16 @@ import (
 
 // List retorna os customers da organização identificada por orgSlug.
 // Suporta busca por texto (name ou phone) via filter.Query e paginação via Limit/Offset.
-// Retorna ErrForbidden se requestingRole não for "owner" nem "admin".
+// Retorna ErrForbidden se requestingUserID não for owner da org nem tiver role "admin".
 // Retorna ErrOrgNotFound se o slug não existir.
 func List(db *gorm.DB, orgSlug string, requestingUserID uint, requestingRole string, filter models.ListCustomersFilter) ([]models.Customer, error) {
-	if requestingRole != "owner" && requestingRole != "admin" {
-		return nil, ErrForbidden
-	}
-
 	var org models.Organization
 	if result := db.Where("slug = ?", orgSlug).Find(&org); result.Error != nil || org.ID == 0 {
 		return nil, ErrOrgNotFound
+	}
+
+	if org.OwnerID != requestingUserID && requestingRole != "admin" {
+		return nil, ErrForbidden
 	}
 
 	query := db.Where("organization_id = ?", org.ID)

@@ -28,7 +28,7 @@ func TestUpdateCustomer_Name(t *testing.T) {
 
 	newName := "Carlos Silva"
 	input := models.UpdateCustomerInput{Name: &newName}
-	customer, err := Update(db, "barbearia-test", 1, 10, "owner", input)
+	customer, err := Update(db, "barbearia-test", 1, 10, "user", input)
 	if err != nil {
 		t.Fatalf("expected nil error, got: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestUpdateCustomer_PhoneDuplicate(t *testing.T) {
 
 	newPhone := "11999990099"
 	input := models.UpdateCustomerInput{Phone: &newPhone}
-	_, err := Update(db, "barbearia-test", 1, 10, "owner", input)
+	_, err := Update(db, "barbearia-test", 1, 10, "user", input)
 	if !errors.Is(err, ErrDuplicatePhone) {
 		t.Errorf("expected ErrDuplicatePhone, got: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestUpdateCustomer_EmptyBody(t *testing.T) {
 		WillReturnRows(customerRows(1, 1, "Carlos Souza", "11999990004"))
 
 	input := models.UpdateCustomerInput{} // nenhum campo preenchido
-	_, err := Update(db, "barbearia-test", 1, 10, "owner", input)
+	_, err := Update(db, "barbearia-test", 1, 10, "user", input)
 	if err == nil {
 		t.Error("expected error for empty body, got nil")
 	}
@@ -92,7 +92,7 @@ func TestUpdateCustomer_NotFound(t *testing.T) {
 
 	newName := "Novo Nome"
 	input := models.UpdateCustomerInput{Name: &newName}
-	_, err := Update(db, "barbearia-test", 999, 10, "owner", input)
+	_, err := Update(db, "barbearia-test", 999, 10, "user", input)
 	if !errors.Is(err, ErrCustomerNotFound) {
 		t.Errorf("expected ErrCustomerNotFound, got: %v", err)
 	}

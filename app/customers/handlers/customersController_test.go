@@ -74,7 +74,7 @@ func setupRouterWithAuth(h *Handler, userID uint, role string) *gin.Engine {
 func TestCreate_201(t *testing.T) {
 	db, mock := newTestDB(t)
 	h := &Handler{Handler: app.NewHandler(db)}
-	r := setupRouterWithAuth(h, 10, "owner")
+	r := setupRouterWithAuth(h, 10, "user")
 
 	mock.ExpectQuery(`SELECT.*organizations`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "owner_id", "name", "phone", "email", "street", "number", "neighborhood", "city", "state", "zip_code", "timezone", "created_at", "updated_at", "deleted_at"}).
@@ -114,11 +114,16 @@ func TestCreate_401(t *testing.T) {
 	}
 }
 
-// TestCreate_403_RegularUser verifica que usuário comum recebe 403.
+// TestCreate_403_RegularUser verifica que usuário que não é owner recebe 403.
 func TestCreate_403_RegularUser(t *testing.T) {
-	db, _ := newTestDB(t)
+	db, mock := newTestDB(t)
 	h := &Handler{Handler: app.NewHandler(db)}
+	// userID=20, role="user"; org tem owner_id=10 → não é owner → 403
 	r := setupRouterWithAuth(h, 20, "user")
+
+	mock.ExpectQuery(`SELECT.*organizations`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "owner_id", "name", "phone", "email", "street", "number", "neighborhood", "city", "state", "zip_code", "timezone", "created_at", "updated_at", "deleted_at"}).
+			AddRow(1, "barbearia-test", 10, "Org", "11999990000", "org@test.com", "Rua A", "1", "Bairro", "Cidade", "SP", "00000-000", "America/Sao_Paulo", nil, nil, nil))
 
 	body := bytes.NewBufferString(`{"name":"Carlos","phone":"11999990004"}`)
 	req := httptest.NewRequest(http.MethodPost, "/organizations/barbearia-test/customers", body)
@@ -135,7 +140,7 @@ func TestCreate_403_RegularUser(t *testing.T) {
 func TestCreate_400_MissingFields(t *testing.T) {
 	db, _ := newTestDB(t)
 	h := &Handler{Handler: app.NewHandler(db)}
-	r := setupRouterWithAuth(h, 10, "owner")
+	r := setupRouterWithAuth(h, 10, "user")
 
 	body := bytes.NewBufferString(`{}`)
 	req := httptest.NewRequest(http.MethodPost, "/organizations/barbearia-test/customers", body)
@@ -152,7 +157,7 @@ func TestCreate_400_MissingFields(t *testing.T) {
 func TestCreate_409_DuplicatePhone(t *testing.T) {
 	db, mock := newTestDB(t)
 	h := &Handler{Handler: app.NewHandler(db)}
-	r := setupRouterWithAuth(h, 10, "owner")
+	r := setupRouterWithAuth(h, 10, "user")
 
 	mock.ExpectQuery(`SELECT.*organizations`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "owner_id", "name", "phone", "email", "street", "number", "neighborhood", "city", "state", "zip_code", "timezone", "created_at", "updated_at", "deleted_at"}).
@@ -178,7 +183,7 @@ func TestCreate_409_DuplicatePhone(t *testing.T) {
 func TestList_200(t *testing.T) {
 	db, mock := newTestDB(t)
 	h := &Handler{Handler: app.NewHandler(db)}
-	r := setupRouterWithAuth(h, 10, "owner")
+	r := setupRouterWithAuth(h, 10, "user")
 
 	mock.ExpectQuery(`SELECT.*organizations`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "owner_id", "name", "phone", "email", "street", "number", "neighborhood", "city", "state", "zip_code", "timezone", "created_at", "updated_at", "deleted_at"}).
@@ -210,11 +215,15 @@ func TestList_401(t *testing.T) {
 	}
 }
 
-// TestList_403 verifica que usuário comum recebe 403.
+// TestList_403 verifica que usuário que não é owner recebe 403.
 func TestList_403(t *testing.T) {
-	db, _ := newTestDB(t)
+	db, mock := newTestDB(t)
 	h := &Handler{Handler: app.NewHandler(db)}
 	r := setupRouterWithAuth(h, 20, "user")
+
+	mock.ExpectQuery(`SELECT.*organizations`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "owner_id", "name", "phone", "email", "street", "number", "neighborhood", "city", "state", "zip_code", "timezone", "created_at", "updated_at", "deleted_at"}).
+			AddRow(1, "barbearia-test", 10, "Org", "11999990000", "org@test.com", "Rua A", "1", "Bairro", "Cidade", "SP", "00000-000", "America/Sao_Paulo", nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/organizations/barbearia-test/customers", nil)
 	w := httptest.NewRecorder()
@@ -229,7 +238,7 @@ func TestList_403(t *testing.T) {
 func TestList_404(t *testing.T) {
 	db, mock := newTestDB(t)
 	h := &Handler{Handler: app.NewHandler(db)}
-	r := setupRouterWithAuth(h, 10, "owner")
+	r := setupRouterWithAuth(h, 10, "user")
 
 	mock.ExpectQuery(`SELECT.*organizations`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "owner_id"}))
@@ -249,7 +258,7 @@ func TestList_404(t *testing.T) {
 func TestFind_200(t *testing.T) {
 	db, mock := newTestDB(t)
 	h := &Handler{Handler: app.NewHandler(db)}
-	r := setupRouterWithAuth(h, 10, "owner")
+	r := setupRouterWithAuth(h, 10, "user")
 
 	mock.ExpectQuery(`SELECT.*organizations`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "owner_id", "name", "phone", "email", "street", "number", "neighborhood", "city", "state", "zip_code", "timezone", "created_at", "updated_at", "deleted_at"}).
@@ -282,11 +291,15 @@ func TestFind_401(t *testing.T) {
 	}
 }
 
-// TestFind_403 verifica que usuário comum recebe 403.
+// TestFind_403 verifica que usuário que não é owner recebe 403.
 func TestFind_403(t *testing.T) {
-	db, _ := newTestDB(t)
+	db, mock := newTestDB(t)
 	h := &Handler{Handler: app.NewHandler(db)}
 	r := setupRouterWithAuth(h, 20, "user")
+
+	mock.ExpectQuery(`SELECT.*organizations`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "owner_id", "name", "phone", "email", "street", "number", "neighborhood", "city", "state", "zip_code", "timezone", "created_at", "updated_at", "deleted_at"}).
+			AddRow(1, "barbearia-test", 10, "Org", "11999990000", "org@test.com", "Rua A", "1", "Bairro", "Cidade", "SP", "00000-000", "America/Sao_Paulo", nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/organizations/barbearia-test/customers/1", nil)
 	w := httptest.NewRecorder()
@@ -301,7 +314,7 @@ func TestFind_403(t *testing.T) {
 func TestFind_404(t *testing.T) {
 	db, mock := newTestDB(t)
 	h := &Handler{Handler: app.NewHandler(db)}
-	r := setupRouterWithAuth(h, 10, "owner")
+	r := setupRouterWithAuth(h, 10, "user")
 
 	mock.ExpectQuery(`SELECT.*organizations`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "owner_id", "name", "phone", "email", "street", "number", "neighborhood", "city", "state", "zip_code", "timezone", "created_at", "updated_at", "deleted_at"}).
@@ -324,7 +337,7 @@ func TestFind_404(t *testing.T) {
 func TestUpdate_200(t *testing.T) {
 	db, mock := newTestDB(t)
 	h := &Handler{Handler: app.NewHandler(db)}
-	r := setupRouterWithAuth(h, 10, "owner")
+	r := setupRouterWithAuth(h, 10, "user")
 
 	mock.ExpectQuery(`SELECT.*organizations`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "owner_id", "name", "phone", "email", "street", "number", "neighborhood", "city", "state", "zip_code", "timezone", "created_at", "updated_at", "deleted_at"}).
@@ -365,11 +378,15 @@ func TestUpdate_401(t *testing.T) {
 	}
 }
 
-// TestUpdate_403 verifica que usuário comum recebe 403.
+// TestUpdate_403 verifica que usuário que não é owner recebe 403.
 func TestUpdate_403(t *testing.T) {
-	db, _ := newTestDB(t)
+	db, mock := newTestDB(t)
 	h := &Handler{Handler: app.NewHandler(db)}
 	r := setupRouterWithAuth(h, 20, "user")
+
+	mock.ExpectQuery(`SELECT.*organizations`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "owner_id", "name", "phone", "email", "street", "number", "neighborhood", "city", "state", "zip_code", "timezone", "created_at", "updated_at", "deleted_at"}).
+			AddRow(1, "barbearia-test", 10, "Org", "11999990000", "org@test.com", "Rua A", "1", "Bairro", "Cidade", "SP", "00000-000", "America/Sao_Paulo", nil, nil, nil))
 
 	body := bytes.NewBufferString(`{"name":"Carlos"}`)
 	req := httptest.NewRequest(http.MethodPatch, "/organizations/barbearia-test/customers/1", body)
@@ -386,7 +403,7 @@ func TestUpdate_403(t *testing.T) {
 func TestUpdate_400_EmptyBody(t *testing.T) {
 	db, mock := newTestDB(t)
 	h := &Handler{Handler: app.NewHandler(db)}
-	r := setupRouterWithAuth(h, 10, "owner")
+	r := setupRouterWithAuth(h, 10, "user")
 
 	mock.ExpectQuery(`SELECT.*organizations`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "owner_id", "name", "phone", "email", "street", "number", "neighborhood", "city", "state", "zip_code", "timezone", "created_at", "updated_at", "deleted_at"}).
@@ -410,7 +427,7 @@ func TestUpdate_400_EmptyBody(t *testing.T) {
 func TestUpdate_409_DuplicatePhone(t *testing.T) {
 	db, mock := newTestDB(t)
 	h := &Handler{Handler: app.NewHandler(db)}
-	r := setupRouterWithAuth(h, 10, "owner")
+	r := setupRouterWithAuth(h, 10, "user")
 
 	mock.ExpectQuery(`SELECT.*organizations`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "owner_id", "name", "phone", "email", "street", "number", "neighborhood", "city", "state", "zip_code", "timezone", "created_at", "updated_at", "deleted_at"}).
@@ -440,7 +457,7 @@ func TestUpdate_409_DuplicatePhone(t *testing.T) {
 func TestDelete_204(t *testing.T) {
 	db, mock := newTestDB(t)
 	h := &Handler{Handler: app.NewHandler(db)}
-	r := setupRouterWithAuth(h, 10, "owner")
+	r := setupRouterWithAuth(h, 10, "user")
 
 	mock.ExpectQuery(`SELECT.*organizations`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "owner_id", "name", "phone", "email", "street", "number", "neighborhood", "city", "state", "zip_code", "timezone", "created_at", "updated_at", "deleted_at"}).
@@ -479,11 +496,15 @@ func TestDelete_401(t *testing.T) {
 	}
 }
 
-// TestDelete_403 verifica que usuário comum recebe 403.
+// TestDelete_403 verifica que usuário que não é owner recebe 403.
 func TestDelete_403(t *testing.T) {
-	db, _ := newTestDB(t)
+	db, mock := newTestDB(t)
 	h := &Handler{Handler: app.NewHandler(db)}
 	r := setupRouterWithAuth(h, 20, "user")
+
+	mock.ExpectQuery(`SELECT.*organizations`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "owner_id", "name", "phone", "email", "street", "number", "neighborhood", "city", "state", "zip_code", "timezone", "created_at", "updated_at", "deleted_at"}).
+			AddRow(1, "barbearia-test", 10, "Org", "11999990000", "org@test.com", "Rua A", "1", "Bairro", "Cidade", "SP", "00000-000", "America/Sao_Paulo", nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodDelete, "/organizations/barbearia-test/customers/1", nil)
 	w := httptest.NewRecorder()
@@ -498,7 +519,7 @@ func TestDelete_403(t *testing.T) {
 func TestDelete_409_ActiveSchedules(t *testing.T) {
 	db, mock := newTestDB(t)
 	h := &Handler{Handler: app.NewHandler(db)}
-	r := setupRouterWithAuth(h, 10, "owner")
+	r := setupRouterWithAuth(h, 10, "user")
 
 	mock.ExpectQuery(`SELECT.*organizations`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "owner_id", "name", "phone", "email", "street", "number", "neighborhood", "city", "state", "zip_code", "timezone", "created_at", "updated_at", "deleted_at"}).
@@ -523,7 +544,7 @@ func TestDelete_409_ActiveSchedules(t *testing.T) {
 func TestDelete_404(t *testing.T) {
 	db, mock := newTestDB(t)
 	h := &Handler{Handler: app.NewHandler(db)}
-	r := setupRouterWithAuth(h, 10, "owner")
+	r := setupRouterWithAuth(h, 10, "user")
 
 	mock.ExpectQuery(`SELECT.*organizations`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "owner_id", "name", "phone", "email", "street", "number", "neighborhood", "city", "state", "zip_code", "timezone", "created_at", "updated_at", "deleted_at"}).

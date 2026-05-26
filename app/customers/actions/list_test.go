@@ -24,7 +24,7 @@ func TestListCustomers_Success(t *testing.T) {
 				AddRow(2, 1, nil, "Cliente Manual", "11999990099", nil, nil, nil),
 		)
 
-	customers, err := List(db, "barbearia-test", 10, "owner", models.ListCustomersFilter{Limit: 20})
+	customers, err := List(db, "barbearia-test", 10, "user", models.ListCustomersFilter{Limit: 20})
 	if err != nil {
 		t.Fatalf("expected nil error, got: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestListCustomers_Empty(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "customers"`)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "organization_id", "user_id", "name", "phone", "notes", "created_at", "updated_at"}))
 
-	customers, err := List(db, "barbearia-test", 10, "owner", models.ListCustomersFilter{Limit: 20})
+	customers, err := List(db, "barbearia-test", 10, "user", models.ListCustomersFilter{Limit: 20})
 	if err != nil {
 		t.Fatalf("expected nil error, got: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestListCustomers_Search_ByName(t *testing.T) {
 	mock.ExpectQuery(`ILIKE`).
 		WillReturnRows(customerRows(1, 1, "Carlos Souza", "11999990004"))
 
-	customers, err := List(db, "barbearia-test", 10, "owner", models.ListCustomersFilter{Query: "carlos", Limit: 20})
+	customers, err := List(db, "barbearia-test", 10, "user", models.ListCustomersFilter{Query: "carlos", Limit: 20})
 	if err != nil {
 		t.Fatalf("expected nil error, got: %v", err)
 	}
@@ -77,9 +77,14 @@ func TestListCustomers_Search_ByName(t *testing.T) {
 	}
 }
 
-// TestListCustomers_Forbidden verifica que usuário comum recebe ErrForbidden.
+// TestListCustomers_Forbidden verifica que usuário que não é owner recebe ErrForbidden.
 func TestListCustomers_Forbidden(t *testing.T) {
-	db, _ := newTestDB(t)
+	db, mock := newTestDB(t)
+
+	// org com owner_id=10; requestingUserID=20 (não é owner)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "organizations" WHERE slug = $1`)).
+		WithArgs("barbearia-test").
+		WillReturnRows(orgRows(1, "barbearia-test", 10))
 
 	_, err := List(db, "barbearia-test", 20, "user", models.ListCustomersFilter{})
 	if !errors.Is(err, ErrForbidden) {
@@ -95,7 +100,7 @@ func TestListCustomers_OrgNotFound(t *testing.T) {
 		WithArgs("nao-existe").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "owner_id"}))
 
-	_, err := List(db, "nao-existe", 10, "owner", models.ListCustomersFilter{})
+	_, err := List(db, "nao-existe", 10, "user", models.ListCustomersFilter{})
 	if !errors.Is(err, ErrOrgNotFound) {
 		t.Errorf("expected ErrOrgNotFound, got: %v", err)
 	}

@@ -9,17 +9,17 @@ import (
 )
 
 // Update atualiza parcialmente um customer identificado por customerID dentro da org.
-// Retorna ErrForbidden se requestingRole não for "owner" nem "admin".
+// Retorna ErrForbidden se requestingUserID não for owner da org nem tiver role "admin".
 // Retorna ErrCustomerNotFound se o ID não existir ou pertencer a outra org.
 // Retorna ErrDuplicatePhone se o novo phone já estiver em uso por outro customer da mesma org.
 func Update(db *gorm.DB, orgSlug string, customerID uint, requestingUserID uint, requestingRole string, input models.UpdateCustomerInput) (*models.Customer, error) {
-	if requestingRole != "owner" && requestingRole != "admin" {
-		return nil, ErrForbidden
-	}
-
 	var org models.Organization
 	if result := db.Where("slug = ?", orgSlug).Find(&org); result.Error != nil || org.ID == 0 {
 		return nil, ErrOrgNotFound
+	}
+
+	if org.OwnerID != requestingUserID && requestingRole != "admin" {
+		return nil, ErrForbidden
 	}
 
 	var customer models.Customer

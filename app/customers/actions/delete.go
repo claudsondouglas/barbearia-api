@@ -7,18 +7,18 @@ import (
 )
 
 // Delete remove permanentemente (hard delete) o customer identificado por customerID.
-// Retorna ErrForbidden se requestingRole não for "owner" nem "admin".
+// Retorna ErrForbidden se requestingUserID não for owner da org nem tiver role "admin".
 // Retorna ErrCustomerNotFound se o ID não existir ou pertencer a outra org.
 // Retorna ErrCustomerHasActiveSchedules se houver agendamentos com status "pending" ou "confirmed".
 // Agendamentos com status "completed" ou "cancelled" têm customer_id zerado via FK set null.
 func Delete(db *gorm.DB, orgSlug string, customerID uint, requestingUserID uint, requestingRole string) error {
-	if requestingRole != "owner" && requestingRole != "admin" {
-		return ErrForbidden
-	}
-
 	var org models.Organization
 	if result := db.Where("slug = ?", orgSlug).Find(&org); result.Error != nil || org.ID == 0 {
 		return ErrOrgNotFound
+	}
+
+	if org.OwnerID != requestingUserID && requestingRole != "admin" {
+		return ErrForbidden
 	}
 
 	var customer models.Customer
