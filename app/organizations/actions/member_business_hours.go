@@ -23,14 +23,102 @@ type UpdateBusinessHourInput struct {
 // GetMemberBusinessHours retorna os 7 dias de horário de um membro específico na org.
 // Retorna ErrOrgNotFound ou ErrMemberNotFound conforme o caso.
 func GetMemberBusinessHours(db *gorm.DB, orgSlug string, userID uint) ([]models.MemberBusinessHour, error) {
-	panic("not implemented")
+	org, err := FindBySlug(db, orgSlug)
+	if err != nil {
+		return nil, err
+	}
+
+	member, err := findActiveMember(db, org.ID, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	var hours []models.MemberBusinessHour
+	if err := db.Where("org_member_id = ?", member.ID).Order("day_of_week").Find(&hours).Error; err != nil {
+		return nil, err
+	}
+
+	return hours, nil
 }
 
 // UpdateMemberBusinessHoursBatch atualiza em lote os dias informados nos updates.
 // Apenas owner ou admin (requestingUserID) pode atualizar horários de targetUserID.
 // Valida cada entrada com ValidateBusinessHour antes de persistir.
 func UpdateMemberBusinessHoursBatch(db *gorm.DB, orgSlug string, requestingUserID, targetUserID uint, updates []UpdateBusinessHourInput) error {
-	panic("not implemented")
+	if len(updates) == 0 {
+		return errors.New("no updates provided")
+	}
+
+	for _, u := range updates {
+		if err := ValidateBusinessHour(u.DayOfWeek, u.OpenTime, u.CloseTime, u.Closed); err != nil {
+			return err
+		}
+	}
+
+	org, err := FindBySlug(db, orgSlug)
+	if err != nil {
+		return err
+	}
+
+	if err := checkOwnerOrAdmin(db, org, requestingUserID); err != nil {
+		return err
+	}
+
+	member, err := findActiveMember(db, org.ID, targetUserID)
+	if err != nil {
+		return err
+	}
+
+	for _, u := range updates {
+		var openTime, closeTime *string
+		if !u.Closed {
+			openTime = u.OpenTime
+			closeTime = u.CloseTime
+		}
+		if err := db.Model(&models.MemberBusinessHour{}).
+			Where("org_member_id = ? AND day_of_week = ?", member.ID, u.DayOfWeek).
+			Updates(map[string]interface{}{
+				"closed":     u.Closed,
+				"open_time":  openTime,
+				"close_time": closeTime,
+			}).Error; err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// UpdateMemberBusinessHourDay atualiza um único dia de horário de um membro.
+// Apenas owner ou admin (requestingUserID) pode atualizar horários de targetUserID.
+func UpdateMemberBusinessHourDay(db *gorm.DB, orgSlug string, requestingUserID, targetUserID uint, day int, input UpdateBusinessHourInput) error {
+	input.DayOfWeek = day
+	return UpdateMemberBusinessHoursBatch(db, orgSlug, requestingUserID, targetUserID, []UpdateBusinessHourInput{input})
+}
+
+func findActiveMember(db *gorm.DB, orgID, userID uint) (models.OrgMember, error) {
+	var members []models.OrgMember
+	if err := db.Where("organization_id = ? AND user_id = ?", orgID, userID).Find(&members).Error; err != nil {
+		return models.OrgMember{}, err
+	}
+	if len(members) == 0 {
+		return models.OrgMember{}, ErrMemberNotFound
+	}
+	return members[0], nil
+}
+
+func checkOwnerOrAdmin(db *gorm.DB, org *models.Organization, requestingUserID uint) error {
+	if org.OwnerID == requestingUserID {
+		return nil
+	}
+	var users []models.User
+	if err := db.Where("id = ?", requestingUserID).Find(&users).Error; err != nil || len(users) == 0 {
+		return ErrForbidden
+	}
+	if users[0].Role == "admin" {
+		return nil
+	}
+	return ErrForbidden
 }
 
 // ValidateBusinessHour valida as regras de negócio de um horário:

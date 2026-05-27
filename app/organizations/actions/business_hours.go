@@ -17,7 +17,28 @@ type BusinessHourDay struct {
 // GetBusinessHours busca os business hours agregados de uma org pelo slug.
 // Retorna ErrOrgNotFound se a org não existir ou estiver soft-deleted.
 func GetBusinessHours(db *gorm.DB, orgSlug string) ([]BusinessHourDay, error) {
-	panic("not implemented")
+	org, err := FindBySlug(db, orgSlug)
+	if err != nil {
+		return nil, err
+	}
+
+	var memberIDs []uint
+	if err := db.Model(&models.OrgMember{}).
+		Where("organization_id = ? AND deleted_at IS NULL", org.ID).
+		Pluck("id", &memberIDs).Error; err != nil {
+		return nil, err
+	}
+
+	if len(memberIDs) == 0 {
+		return AggregateBusinessHours(nil), nil
+	}
+
+	var hours []models.MemberBusinessHour
+	if err := db.Where("org_member_id IN ?", memberIDs).Find(&hours).Error; err != nil {
+		return nil, err
+	}
+
+	return AggregateBusinessHours(hours), nil
 }
 
 // AggregateBusinessHours calcula o horário de funcionamento da organização

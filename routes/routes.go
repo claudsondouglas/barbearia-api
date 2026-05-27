@@ -97,9 +97,9 @@ func Initialize(db *gorm.DB, redisClient *redis.Client) {
 	routes.POST("/organizations/:slug/members", middleware.Auth(redisClient), membersHandler.Add)
 	routes.DELETE("/organizations/:slug/members/:user_id", middleware.Auth(redisClient), membersHandler.Remove)
 
-	routes.GET("/organizations/:slug/members/:user_id/business-hours", middleware.Auth(redisClient), orgsHandler.GetMemberBusinessHours)
-	routes.PATCH("/organizations/:slug/members/:user_id/business-hours", middleware.Auth(redisClient), orgsHandler.UpdateMemberBusinessHoursBatch)
-	routes.PATCH("/organizations/:slug/members/:user_id/business-hours/:day", middleware.Auth(redisClient), orgsHandler.UpdateMemberBusinessHourDay)
+	routes.GET("/organizations/:slug/members/:user_id/business-hours", orgsHandler.GetMemberBusinessHours)
+	routes.PUT("/organizations/:slug/members/:user_id/business-hours", middleware.Auth(redisClient), orgsHandler.UpdateMemberBusinessHoursBatch)
+	routes.PUT("/organizations/:slug/members/:user_id/business-hours/:day", middleware.Auth(redisClient), orgsHandler.UpdateMemberBusinessHourDay)
 
 	routes.GET("/organizations/:slug/members/:user_id/exceptions", middleware.Auth(redisClient), orgsHandler.ListMemberExceptions)
 	routes.POST("/organizations/:slug/members/:user_id/exceptions", middleware.Auth(redisClient), orgsHandler.CreateMemberException)

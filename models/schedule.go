@@ -53,9 +53,10 @@ type CreateScheduleInput struct {
 
 // ListSchedulesFilter contém os filtros para listar agendamentos.
 type ListSchedulesFilter struct {
-	Status         string
-	Date           string
-	ProfessionalID *uint
-	Limit          int
-	Offset         int
+	Status           string
+	Date             string
+	ProfessionalID   *uint
+	OrganizationSlug string
+	Limit            int
+	Offset           int
 }
